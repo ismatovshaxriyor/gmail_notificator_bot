@@ -81,3 +81,61 @@ python main.py
 - Bot Gmailni `POLL_INTERVAL_SECONDS` bo'yicha periodik tekshiradi.
 - Duplicate yuborishni oldini olish uchun `gmail_message_id` uniq saqlanadi.
 - Barcha komandalar faqat `ADMIN_USER_IDS` dagi userlarga ochiq.
+
+## Serverga qo'yish (`/var/www` + `systemd`)
+
+Quyidagi misol Ubuntu/Debian server uchun.
+
+### 1) Serverga clone qilish
+
+```bash
+cd /var/www
+sudo git clone https://github.com/ismatovshaxriyor/gmail_notificator_bot.git
+cd /var/www/gmail_notificator_bot
+```
+
+### 2) Python va virtualenv
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3) Konfiguratsiya fayllari
+
+```bash
+cp .env.example .env
+```
+
+`.env` ichida kamida:
+- `BOT_TOKEN`
+- `ADMIN_USER_IDS`
+- `SENDER_FILTER`
+- `SUBJECT_MUST_CONTAIN=New request from`
+
+`credentials.json` va `token.json` ni ham loyiha ildiziga qo'ying.
+
+### 4) Ruxsatlar
+
+```bash
+sudo chown -R www-data:www-data /var/www/gmail_notificator_bot
+```
+
+### 5) systemd service ulash
+
+```bash
+sudo cp deploy/systemd/gmail-notificator-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable gmail-notificator-bot
+sudo systemctl start gmail-notificator-bot
+```
+
+### 6) Holatini tekshirish
+
+```bash
+sudo systemctl status gmail-notificator-bot
+sudo journalctl -u gmail-notificator-bot -f
+```
