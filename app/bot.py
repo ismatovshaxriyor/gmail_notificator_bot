@@ -503,9 +503,8 @@ class GmailForwardBot:
         formatted_content = _format_email_message(row, body_text)
 
         text = (
-            f"📧 Email Tafsilotlari (ID: {row.id})\n\n"
             f"{formatted_content}\n\n"
-            f"Guruhlarga yetkazilganlik holati:\n"
+            f"Delivery status:\n"
             f"{delivery_status_text}"
         )
 
