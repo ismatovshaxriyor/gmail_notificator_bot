@@ -155,8 +155,6 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
     if details.has_data():
         parts = [
             "NEW SD REQUEST",
-            f"{row.subject}",
-            f"{row.sender}",
             "",
         ]
         if details.order_id:
@@ -187,10 +185,8 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
 
     fallback = (
         "NEW SD REQUEST\n"
-        f"{row.subject}\n"
-        f"{row.sender}\n"
         "\n"
-        f"Snippet: {snippet}"
+        f"{snippet}"
     )
     if len(fallback) > 4000:
         return fallback[:4000] + "..."
@@ -480,19 +476,6 @@ class GmailForwardBot:
             if not delivery:
                 return "Ruxsat etilmagan.", InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Ro'yxatga qaytish", callback_data=f"{HISTORY_PREFIX}:list:{limit}")]])
 
-        # Get deliveries to display
-        if is_group_chat:
-            grp = Group.get_or_none(Group.chat_id == chat.id, Group.is_active == True)
-            deliveries = EmailDelivery.select().where(EmailDelivery.email == row, EmailDelivery.group == grp)
-        else:
-            deliveries = EmailDelivery.select().where(EmailDelivery.email == row)
-
-        delivery_lines = []
-        for d in deliveries:
-            status = "✅ Yetkazildi" if d.delivered else f"❌ Xato: {d.error_text or 'noma\'lum'}"
-            delivery_lines.append(f"- {d.group.title}: {status}")
-        delivery_status_text = "\n".join(delivery_lines) if delivery_lines else "Yuborilmagan"
-
         body_text = ""
         try:
             msg = self.gmail.get_message(row.gmail_message_id)
@@ -501,12 +484,7 @@ class GmailForwardBot:
             body_text = row.snippet
 
         formatted_content = _format_email_message(row, body_text)
-
-        text = (
-            f"{formatted_content}\n\n"
-            f"Delivery status:\n"
-            f"{delivery_status_text}"
-        )
+        text = formatted_content
 
         keyboard = [
             [InlineKeyboardButton("⬅️ Ro'yxatga qaytish", callback_data=f"{HISTORY_PREFIX}:list:{limit}")]
