@@ -155,8 +155,8 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
     if details.has_data():
         parts = [
             "NEW SD REQUEST",
-            f"Subject: {row.subject}",
-            f"From: {row.sender}",
+            f"{row.subject}",
+            f"{row.sender}",
             "",
         ]
         if details.order_id:
@@ -187,8 +187,8 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
 
     fallback = (
         "NEW SD REQUEST\n"
-        f"From: {row.sender}\n"
-        f"Subject: {row.subject}\n"
+        f"{row.subject}\n"
+        f"{row.sender}\n"
         "\n"
         f"Snippet: {snippet}"
     )
