@@ -147,10 +147,6 @@ def _parse_order_email(body_text: str) -> OrderEmailDetails:
 
 
 def _format_email_message(row: EmailHistory, body_text: str) -> str:
-    dt = row.internal_date
-    if isinstance(dt, str):
-        dt = datetime.fromisoformat(dt)
-    internal_date_local = dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     snippet = row.snippet.strip() if row.snippet else "(Bo'sh)"
     if len(snippet) > 500:
         snippet = snippet[:500] + "..."
@@ -158,10 +154,9 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
     details = _parse_order_email(body_text)
     if details.has_data():
         parts = [
-            "Yangi order email",
+            "NEW SD REQUEST",
             f"Subject: {row.subject}",
             f"From: {row.sender}",
-            f"Vaqt: {internal_date_local}",
             "",
         ]
         if details.order_id:
@@ -191,10 +186,10 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
         return message
 
     fallback = (
-        "Yangi email\n"
+        "NEW SD REQUEST\n"
         f"From: {row.sender}\n"
         f"Subject: {row.subject}\n"
-        f"Vaqt: {internal_date_local}\n\n"
+        "\n"
         f"Snippet: {snippet}"
     )
     if len(fallback) > 4000:
