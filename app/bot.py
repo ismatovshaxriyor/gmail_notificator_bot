@@ -62,7 +62,7 @@ class OrderEmailDetails:
         )
 
 
-SECTION_LABELS = ["order id", "price", "vehicles", "vehicle", "carrier", "view requests"]
+SECTION_LABELS = ["order id", "price", "bid", "vehicles", "vehicle", "carrier", "view requests"]
 LOCATION_RE = re.compile(r"\b[A-Za-z][A-Za-z .'-]*,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
 DATE_RE = re.compile(
     r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}\b",
@@ -109,11 +109,15 @@ def _parse_order_email(body_text: str) -> OrderEmailDetails:
     body_joined = "\n".join(lines)
     details = OrderEmailDetails(
         order_id=_extract_labeled_value(lines, "Order ID"),
-        price=_extract_labeled_value(lines, "Price"),
+        price=_extract_labeled_value(lines, "Price") or _extract_labeled_value(lines, "Bid"),
         vehicle=_extract_labeled_value(lines, "Vehicles")
         or _extract_labeled_value(lines, "Vehicle"),
         carrier=_extract_labeled_value(lines, "Carrier"),
     )
+    details.order_id = details.order_id.strip(" .")
+    details.price = details.price.strip(" .")
+    details.vehicle = details.vehicle.strip(" .·")
+    details.carrier = details.carrier.strip(" .")
 
     locations = []
     for line in lines:

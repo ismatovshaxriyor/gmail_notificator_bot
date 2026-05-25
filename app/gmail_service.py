@@ -195,6 +195,14 @@ class GmailService:
         return decoded.decode("utf-8", errors="replace")
 
     @staticmethod
+    def _looks_like_html(text: str) -> bool:
+        sample = (text or "").lstrip().lower()
+        if not sample:
+            return False
+        html_markers = ("<!doctype", "<html", "<body", "<table", "<div", "<style", "<p")
+        return any(marker in sample[:4000] for marker in html_markers)
+
+    @staticmethod
     def _html_to_text(html_text: str) -> str:
         text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html_text)
         text = re.sub(r"(?i)<br\s*/?>", "\n", text)
@@ -222,19 +230,38 @@ class GmailService:
             elif mime == "text/html":
                 html_parts.append(chunk)
 
-        if plain_parts:
-            text = "\n".join(p.strip() for p in plain_parts if p.strip()).strip()
-            if text:
-                return text
+        def score_text(value: str) -> int:
+            if not value:
+                return 0
+            low = value.lower()
+            score = 0
+            for kw in ("order id", "price", "bid", "vehicles", "carrier", "pickup", "view requests"):
+                if kw in low:
+                    score += 100
+            score += min(len(value), 2000) // 20
+            return score
+
+        candidates: List[str] = []
+        for part in plain_parts:
+            candidate = part.strip()
+            if not candidate:
+                continue
+            if self._looks_like_html(candidate):
+                candidate = self._html_to_text(candidate)
+            candidates.append(candidate)
 
         if html_parts:
             html_joined = "\n".join(h for h in html_parts if h)
-            return self._html_to_text(html_joined)
+            candidates.append(self._html_to_text(html_joined))
+
+        candidates = [c for c in candidates if c]
+        if candidates:
+            return max(candidates, key=score_text).strip()
 
         body_data = payload.get("body", {}).get("data", "")
         if body_data:
             raw_text = self._decode_body_data(body_data)
-            if "<html" in raw_text.lower():
+            if self._looks_like_html(raw_text):
                 return self._html_to_text(raw_text)
             return raw_text.strip()
         return ""
