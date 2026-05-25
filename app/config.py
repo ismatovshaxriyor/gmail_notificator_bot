@@ -46,8 +46,8 @@ def load_settings() -> Settings:
 
     poll_interval_raw = os.getenv("POLL_INTERVAL_SECONDS", "15").strip()
     poll_interval_seconds = int(poll_interval_raw) if poll_interval_raw else 15
-    if poll_interval_seconds < 5:
-        raise ValueError("POLL_INTERVAL_SECONDS kamida 5 bo'lishi kerak.")
+    if poll_interval_seconds < 2:
+        raise ValueError("POLL_INTERVAL_SECONDS kamida 2 bo'lishi kerak.")
 
     admin_user_ids = _parse_admin_ids(os.getenv("ADMIN_USER_IDS", ""))
     if not admin_user_ids:
