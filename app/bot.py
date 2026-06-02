@@ -361,7 +361,6 @@ class GmailForwardBot:
 
     def _render_home_text(self) -> str:
         sender_filter = get_sender_filter(self.settings.sender_filter) or "(hali berilmagan)"
-        subject_filter = self.settings.subject_must_contain or "(yo'q)"
         group_count = len(list_groups(active_only=True))
         if self.gmail.authenticated:
             auth_status = "✅ Ulangan"
@@ -382,7 +381,6 @@ class GmailForwardBot:
             "Gmail Forward Bot\n\n"
             f"Gmail holati: {auth_status}\n"
             f"Kuzatilayotgan email: {sender_filter}\n"
-            f"Subject filter: {subject_filter}\n"
             f"Ulangan guruhlar: {group_count}\n"
             f"Tekshiruv oralig'i: {self.settings.poll_interval_seconds} soniya"
             f"{auth_instruction}\n\n"
@@ -401,7 +399,6 @@ class GmailForwardBot:
 
     def _render_status_text(self) -> str:
         sender_filter = get_sender_filter(self.settings.sender_filter)
-        subject_filter = self.settings.subject_must_contain
         groups = list_groups(active_only=True)
         last_checked = get_last_checked_ts()
         if last_checked:
@@ -412,7 +409,6 @@ class GmailForwardBot:
             last_checked_text = "hali tekshirilmagan"
 
         sender_state = "tayyor" if sender_filter else "yo'q"
-        subject_state = "tayyor" if subject_filter else "yo'q"
         groups_state = "tayyor" if groups else "yo'q"
         auth_state = "tayyor" if self.gmail.authenticated else "ULANMAGAN ⚠️"
 
@@ -420,11 +416,10 @@ class GmailForwardBot:
             "Joriy holat\n\n"
             f"Gmail ulanishi: {auth_state}\n"
             f"Sender filter: {sender_filter or '(kiritilmagan)'}\n"
-            f"Subject filter: {subject_filter or '(kiritilmagan)'}\n"
             f"Guruhlar soni: {len(groups)}\n"
             f"Poll interval: {self.settings.poll_interval_seconds} soniya\n"
             f"Oxirgi tekshiruv: {last_checked_text}\n\n"
-            f"Konfiguratsiya: auth={auth_state}, sender={sender_state}, subject={subject_state}, groups={groups_state}"
+            f"Konfiguratsiya: auth={auth_state}, sender={sender_state}, groups={groups_state}"
         )
 
     def _render_history_text(self, rows: List[EmailHistory], limit: int) -> str:
@@ -876,7 +871,6 @@ class GmailForwardBot:
         if not self.gmail.authenticated:
             return 0
         sender_filter = get_sender_filter(self.settings.sender_filter)
-        subject_filter = (self.settings.subject_must_contain or "").strip().lower()
         groups = list_groups(active_only=True)
         if not sender_filter or not groups:
             return 0
@@ -918,8 +912,6 @@ class GmailForwardBot:
             max_seen = max(max_seen, ts_seconds)
 
             if msg.sender_email != sender_filter.lower():
-                continue
-            if subject_filter and subject_filter not in (msg.subject or "").lower():
                 continue
 
             row = EmailHistory.create(

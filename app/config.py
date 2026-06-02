@@ -33,7 +33,6 @@ class Settings:
     gmail_token_file: str
     admin_user_ids: Set[int]
     sender_filter: str
-    subject_must_contain: str
     target_chat_id: Optional[int]
     poll_interval_seconds: int
     gmail_query_extra: str
@@ -61,7 +60,6 @@ def load_settings() -> Settings:
         gmail_token_file=os.getenv("GMAIL_TOKEN_FILE", "token.json").strip() or "token.json",
         admin_user_ids=admin_user_ids,
         sender_filter=os.getenv("SENDER_FILTER", "").strip(),
-        subject_must_contain=os.getenv("SUBJECT_MUST_CONTAIN", "New request from").strip(),
         target_chat_id=_parse_optional_int(os.getenv("TARGET_CHAT_ID", "")),
         poll_interval_seconds=poll_interval_seconds,
         gmail_query_extra=os.getenv("GMAIL_QUERY_EXTRA", "").strip(),
