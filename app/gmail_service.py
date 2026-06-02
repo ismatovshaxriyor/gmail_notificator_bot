@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parseaddr
 import html as html_lib
+import logging
 from pathlib import Path
 import re
 from typing import Dict, List, Optional, Tuple
@@ -14,6 +15,8 @@ from googleapiclient.discovery import build
 
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,8 +63,8 @@ class GmailService:
                 creds.refresh(Request())
                 self._save_credentials(creds)
                 return creds
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Token refresh muvaffaqiyatsiz: %s", exc)
 
         if not interactive:
             return None
@@ -104,6 +107,10 @@ class GmailService:
         )
         self.authenticated = True
         return creds
+
+    def invalidate(self) -> None:
+        self.authenticated = False
+        self._service = None
 
     def _save_credentials(self, creds: Credentials) -> None:
         Path(self.token_file).write_text(creds.to_json(), encoding="utf-8")

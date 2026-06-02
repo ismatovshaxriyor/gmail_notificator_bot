@@ -15,6 +15,8 @@ from telegram.ext import (
     filters,
 )
 
+from google.auth.exceptions import RefreshError
+
 from app.config import Settings
 from app.db import (
     EmailDelivery,
@@ -214,6 +216,23 @@ class GmailForwardBot:
                         LOGGER.exception("Admin %s ga xabar yuborishda xato: %s", admin_id, exc)
             except Exception as exc:
                 LOGGER.exception("Auth link yaratishda xato: %s", exc)
+
+    async def _notify_admins_reauth(self, bot) -> None:
+        try:
+            auth_url, _ = self.gmail.generate_auth_url()
+            text = (
+                "⚠️ Gmail token eskirdi yoki bekor qilindi!\n\n"
+                "Qayta ulash uchun quyidagi havolaga bosing, ruxsat bering, "
+                "keyin URL yoki kodni botga yuboring:\n\n"
+                f"{auth_url}"
+            )
+            for admin_id in self.settings.admin_user_ids:
+                try:
+                    await bot.send_message(chat_id=admin_id, text=text)
+                except Exception as exc:
+                    LOGGER.error("Admin %s ga xabar yuborishda xato: %s", admin_id, exc)
+        except Exception as exc:
+            LOGGER.exception("Reauth URL yaratishda xato: %s", exc)
 
     def _extract_auth_code(self, text: str) -> Optional[str]:
         text = text.strip()
@@ -1018,6 +1037,11 @@ class GmailForwardBot:
                 extra_query=self.settings.gmail_query_extra,
                 max_results=30,
             )
+        except RefreshError as exc:  # pragma: no cover
+            LOGGER.error("Gmail token eskirdi: %s", exc)
+            self.gmail.invalidate()
+            await self._notify_admins_reauth(context.bot)
+            return 0
         except Exception as exc:  # pragma: no cover
             LOGGER.exception("Gmail list xatosi: %s", exc)
             return 0
