@@ -125,7 +125,7 @@ class GmailService:
         extra_query: str = "",
         max_results: int = 25,
     ) -> List[str]:
-        query_parts = ["in:inbox"]
+        query_parts = []
         if sender_filter:
             query_parts.append(f"from:{sender_filter}")
         if after_ts_seconds:
