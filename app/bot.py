@@ -21,12 +21,10 @@ from app.db import (
     EmailHistory,
     Group,
     deactivate_group,
-    deactivate_group_by_chat_id,
     get_last_checked_ts,
     get_sender_filter,
     list_groups,
     set_last_checked_ts,
-    set_sender_filter,
     upsert_group,
 )
 from app.gmail_service import GmailService
@@ -375,12 +373,11 @@ class GmailForwardBot:
     def _render_help_text(self) -> str:
         return (
             "Qisqa yo'riqnoma\n\n"
-            "1) /setsender sender@gmail.com bilan qaysi email kuzatilishini belgilang.\n"
-            "2) Guruhga botni qo'shing va shu guruhda /groups bosing (yoki shaxsiyda /addgroup <chat_id> buyrug'ini yuboring).\n"
-            "3) Inline tugma orqali guruhni ro'yxatga qo'shing (guruhda bot admin bo'lishi shart).\n"
-            "4) /checknow bilan darhol tekshirib ko'ring.\n\n"
+            "1) /menu orqali sender emailni va guruhlarni boshqaring.\n"
+            "2) Guruhga botni qo'shing (guruhda bot admin bo'lishi shart).\n"
+            "3) /checknow bilan darhol tekshirib ko'ring.\n\n"
             "Asosiy komandalar:\n"
-            "/menu, /status, /groups, /history, /checknow, /addgroup, /delgroup"
+            "/menu, /status, /groups, /history, /checknow"
         )
 
     def _render_status_text(self) -> str:
@@ -552,36 +549,6 @@ class GmailForwardBot:
             return
         await self._edit_or_reply(update, self._render_help_text(), self._main_menu_markup())
 
-    async def set_sender(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            return
-        if not await self._ensure_admin(update):
-            return
-
-        if not context.args:
-            await self._edit_or_reply(
-                update,
-                "Foydalanish:\n/setsender sender@gmail.com",
-                self._main_menu_markup(),
-            )
-            return
-
-        sender = context.args[0].strip().lower()
-        if "@" not in sender:
-            await self._edit_or_reply(
-                update,
-                "Email formati noto'g'ri. Misol:\n/setsender sender@gmail.com",
-                self._main_menu_markup(),
-            )
-            return
-
-        set_sender_filter(sender)
-        await self._edit_or_reply(
-            update,
-            f"Sender saqlandi: {sender}",
-            self._main_menu_markup(),
-        )
-
     async def groups(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
             return
@@ -595,115 +562,6 @@ class GmailForwardBot:
             chat_title=chat.title if chat else None,
         )
         await self._edit_or_reply(update, text, markup)
-
-    async def add_group_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            return
-        if not await self._ensure_admin(update):
-            return
-
-        if not context.args:
-            await self._edit_or_reply(
-                update,
-                "Foydalanish:\n/addgroup <chat_id>\n\nMisol: /addgroup -100123456789",
-                self._main_menu_markup(),
-            )
-            return
-
-        try:
-            chat_id = int(context.args[0].strip())
-        except ValueError:
-            await self._edit_or_reply(
-                update,
-                "Chat ID faqat sonlardan iborat bo'lishi kerak. Misol: -100123456789",
-                self._main_menu_markup(),
-            )
-            return
-
-        try:
-            chat = await context.bot.get_chat(chat_id)
-        except Exception as exc:
-            LOGGER.exception("Chat olishda xato: %s", exc)
-            await self._edit_or_reply(
-                update,
-                "Guruh topilmadi. Bot ushbu guruhga a'zo ekanligini tekshiring.",
-                self._main_menu_markup(),
-            )
-            return
-
-        if chat.type not in ("group", "supergroup"):
-            await self._edit_or_reply(
-                update,
-                "Faqat guruh yoki superguruhlarni qo'shish mumkin.",
-                self._main_menu_markup(),
-            )
-            return
-
-        # Check if bot is admin in the group
-        try:
-            member = await context.bot.get_chat_member(chat_id=chat.id, user_id=context.bot.id)
-            if member.status not in ("administrator", "creator"):
-                await self._edit_or_reply(
-                    update,
-                    "Xatolik: Avval botni o'sha guruhda admin qilishingiz kerak!",
-                    self._main_menu_markup(),
-                )
-                return
-        except Exception as exc:
-            LOGGER.exception("Bot adminligini tekshirishda xato: %s", exc)
-            await self._edit_or_reply(
-                update,
-                "Xatolik: Bot guruh a'zolarini tekshira olmadi. Bot adminligini tekshiring.",
-                self._main_menu_markup(),
-            )
-            return
-
-        added_by = update.effective_user.id
-        title = chat.title or f"group-{chat.id}"
-        upsert_group(chat_id=chat.id, title=title, added_by_user_id=added_by)
-        await self._edit_or_reply(
-            update,
-            f"✅ Guruh muvaffaqiyatli saqlandi:\nNomi: {title}\nID: {chat.id}",
-            self._main_menu_markup(),
-        )
-
-    async def del_group_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            return
-        if not await self._ensure_admin(update):
-            return
-
-        if not context.args:
-            await self._edit_or_reply(
-                update,
-                "Foydalanish:\n/delgroup <chat_id>\n\nMisol: /delgroup -100123456789",
-                self._main_menu_markup(),
-            )
-            return
-
-        try:
-            chat_id = int(context.args[0].strip())
-        except ValueError:
-            await self._edit_or_reply(
-                update,
-                "Chat ID faqat sonlardan iborat bo'lishi kerak. Misol: -100123456789",
-                self._main_menu_markup(),
-            )
-            return
-
-        deleted = deactivate_group_by_chat_id(chat_id)
-        if deleted:
-            await self._edit_or_reply(
-                update,
-                f"✅ Guruh o'chirildi (deaktivatsiya qilindi): {chat_id}",
-                self._main_menu_markup(),
-            )
-        else:
-            await self._edit_or_reply(
-                update,
-                f"Guruh ro'yxatda topilmadi: {chat_id}",
-                self._main_menu_markup(),
-            )
 
     async def groups_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._ensure_admin(update):
@@ -1102,10 +960,7 @@ class GmailForwardBot:
         app.add_handler(CommandHandler("start", self.start))
         app.add_handler(CommandHandler("menu", self.menu))
         app.add_handler(CommandHandler("help", self.help_cmd))
-        app.add_handler(CommandHandler("setsender", self.set_sender))
         app.add_handler(CommandHandler("groups", self.groups))
-        app.add_handler(CommandHandler("addgroup", self.add_group_cmd))
-        app.add_handler(CommandHandler("delgroup", self.del_group_cmd))
         app.add_handler(CommandHandler("status", self.status))
         app.add_handler(CommandHandler("history", self.history))
         app.add_handler(CommandHandler("checknow", self.check_now))
