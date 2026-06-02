@@ -1,0 +1,17 @@
+[Unit]
+Description=Gmail Notificator Telegram Bot 2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gmail_bot_2
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/var/www/gmail_bot_2/venv/bin/python /var/www/gmail_bot_2/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
