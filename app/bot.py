@@ -1074,7 +1074,7 @@ class GmailForwardBot:
             )
         except GmailRateLimitError as exc:
             LOGGER.warning("Gmail rate limit: %s", exc)
-            self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after + 60)
+            self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after)
             await self._notify_admins_rate_limit(context.bot, exc.retry_after)
             return 0
         except RefreshError as exc:  # pragma: no cover
@@ -1094,7 +1094,7 @@ class GmailForwardBot:
                 msg = self.gmail.get_message(message_id)
             except GmailRateLimitError as exc:
                 LOGGER.warning("Gmail rate limit (get_message): %s", exc)
-                self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after + 60)
+                self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after)
                 await self._notify_admins_rate_limit(context.bot, exc.retry_after)
                 break
             except Exception as exc:  # pragma: no cover
