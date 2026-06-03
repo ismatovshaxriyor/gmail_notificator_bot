@@ -235,19 +235,30 @@ class GmailForwardBot:
             LOGGER.exception("Reauth URL yaratishda xato: %s", exc)
 
     def _extract_auth_code(self, text: str) -> Optional[str]:
-        text = text.strip()
-        if text.startswith("http://") or text.startswith("https://"):
-            from urllib.parse import urlparse, parse_qs
+        # Telegram may break long URLs into multiple lines — collapse all whitespace
+        text = re.sub(r"\s+", "", text.strip())
+        if not text:
+            return None
+
+        from urllib.parse import urlparse, parse_qs
+
+        # Normalise: add scheme if missing (e.g. "localhost:8080/?code=...")
+        url_candidate = text
+        if not url_candidate.startswith("http://") and not url_candidate.startswith("https://"):
+            if "code=" in url_candidate:
+                url_candidate = "http://" + url_candidate
+
+        if "code=" in url_candidate:
             try:
-                parsed = urlparse(text)
+                parsed = urlparse(url_candidate)
                 qs = parse_qs(parsed.query)
                 if "code" in qs:
                     return qs["code"][0]
             except Exception:
                 pass
-        # Google authorization code is usually a string with no spaces.
-        # It can have length 10+ characters.
-        if len(text) >= 10 and not any(c.isspace() for c in text):
+
+        # Plain code (no URL): must be at least 10 chars (whitespace already stripped)
+        if len(text) >= 10:
             return text
         return None
 
