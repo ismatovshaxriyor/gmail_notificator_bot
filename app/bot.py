@@ -1,7 +1,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -199,6 +199,7 @@ class GmailForwardBot:
     def __init__(self, settings: Settings, gmail: GmailService) -> None:
         self.settings = settings
         self.gmail = gmail
+        self._rate_limit_until: Optional[datetime] = None
 
     async def post_init(self, application: Application) -> None:
         if not self.gmail.authenticated:
@@ -1043,6 +1044,14 @@ class GmailForwardBot:
     async def poll_once(self, context: ContextTypes.DEFAULT_TYPE) -> int:
         if not self.gmail.authenticated:
             return 0
+
+        now = datetime.now(timezone.utc)
+        if self._rate_limit_until is not None:
+            if now < self._rate_limit_until:
+                return 0
+            LOGGER.info("Gmail rate limit muddati tugadi, polling davom ettirildi.")
+            self._rate_limit_until = None
+
         sender_filter = get_sender_filter(self.settings.sender_filter)
         subject_filter = (self.settings.subject_must_contain or "").strip().lower()
         groups = list_groups(active_only=True)
@@ -1065,6 +1074,7 @@ class GmailForwardBot:
             )
         except GmailRateLimitError as exc:
             LOGGER.warning("Gmail rate limit: %s", exc)
+            self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after + 60)
             await self._notify_admins_rate_limit(context.bot, exc.retry_after)
             return 0
         except RefreshError as exc:  # pragma: no cover
@@ -1082,6 +1092,11 @@ class GmailForwardBot:
 
             try:
                 msg = self.gmail.get_message(message_id)
+            except GmailRateLimitError as exc:
+                LOGGER.warning("Gmail rate limit (get_message): %s", exc)
+                self._rate_limit_until = datetime.now(timezone.utc) + timedelta(seconds=exc.retry_after + 60)
+                await self._notify_admins_rate_limit(context.bot, exc.retry_after)
+                break
             except Exception as exc:  # pragma: no cover
                 LOGGER.exception("Message olishda xato (%s): %s", message_id, exc)
                 continue
