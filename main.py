@@ -36,8 +36,11 @@ def main() -> None:
     )
 
     if gmail.authenticated:
-        profile = gmail.check_connection()
-        logging.info("Gmail ulandi: %s", profile.get("emailAddress"))
+        try:
+            profile = gmail.check_connection()
+            logging.info("Gmail ulandi: %s", profile.get("emailAddress"))
+        except Exception as exc:
+            logging.warning("Gmail ulanish tekshiruvi muvaffaqiyatsiz (bot ishini davom ettiradi): %s", exc)
     else:
         logging.warning("Gmail hozircha ulanmagan (token.json yo'q). Bot ishga tushmoqda, lekin Gmail so'rovlari ishlamaydi.")
 

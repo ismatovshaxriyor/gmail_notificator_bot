@@ -3,15 +3,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parseaddr
 import html as html_lib
+import json
 import logging
 from pathlib import Path
 import re
+import time
 from typing import Dict, List, Optional, Tuple
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -115,8 +118,29 @@ class GmailService:
     def _save_credentials(self, creds: Credentials) -> None:
         Path(self.token_file).write_text(creds.to_json(), encoding="utf-8")
 
-    def check_connection(self) -> Dict:
-        return self._service.users().getProfile(userId="me").execute()
+    def check_connection(self, max_retries: int = 3) -> Dict:
+        for attempt in range(max_retries):
+            try:
+                return self._service.users().getProfile(userId="me").execute()
+            except HttpError as e:
+                if e.resp.status == 429:
+                    wait = 60
+                    try:
+                        details = json.loads(e.content.decode())
+                        msg = details.get("error", {}).get("errors", [{}])[0].get("message", "")
+                        # "Retry after 2026-06-03T14:22:46.077Z"
+                        match = re.search(r"Retry after (.+)$", msg)
+                        if match:
+                            retry_dt = datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+                            wait = max(0, (retry_dt - datetime.now(timezone.utc)).total_seconds()) + 5
+                    except Exception:
+                        pass
+                    if attempt < max_retries - 1:
+                        LOGGER.warning("Gmail rate limit (429), %ds kutilmoqda...", int(wait))
+                        time.sleep(wait)
+                        continue
+                raise
+        raise RuntimeError("check_connection: max retries exceeded")
 
     def list_message_ids(
         self,
