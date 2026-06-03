@@ -31,7 +31,7 @@ from app.db import (
     set_sender_filter,
     upsert_group,
 )
-from app.gmail_service import GmailService
+from app.gmail_service import GmailService, GmailRateLimitError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -216,6 +216,21 @@ class GmailForwardBot:
                         LOGGER.exception("Admin %s ga xabar yuborishda xato: %s", admin_id, exc)
             except Exception as exc:
                 LOGGER.exception("Auth link yaratishda xato: %s", exc)
+
+    async def _notify_admins_rate_limit(self, bot, retry_after: float = 60) -> None:
+        minutes = int(retry_after // 60)
+        seconds = int(retry_after % 60)
+        wait_str = f"{minutes} daqiqa {seconds} soniya" if minutes else f"{seconds} soniya"
+        text = (
+            f"⚠️ Gmail API rate limit!\n\n"
+            f"So'rovlar chegarasiga yetildi. Bot Gmail'ni tekshirishni to'xtatdi.\n"
+            f"Taxminiy kutish vaqti: {wait_str}."
+        )
+        for admin_id in self.settings.admin_user_ids:
+            try:
+                await bot.send_message(chat_id=admin_id, text=text)
+            except Exception as exc:
+                LOGGER.error("Admin %s ga rate limit xabari yuborishda xato: %s", admin_id, exc)
 
     async def _notify_admins_reauth(self, bot) -> None:
         try:
@@ -1048,6 +1063,10 @@ class GmailForwardBot:
                 extra_query=self.settings.gmail_query_extra,
                 max_results=30,
             )
+        except GmailRateLimitError as exc:
+            LOGGER.warning("Gmail rate limit: %s", exc)
+            await self._notify_admins_rate_limit(context.bot, exc.retry_after)
+            return 0
         except RefreshError as exc:  # pragma: no cover
             LOGGER.error("Gmail token eskirdi: %s", exc)
             self.gmail.invalidate()

@@ -7,7 +7,6 @@ import json
 import logging
 from pathlib import Path
 import re
-import time
 from typing import Dict, List, Optional, Tuple
 
 from google.auth.transport.requests import Request
@@ -20,6 +19,12 @@ from googleapiclient.errors import HttpError
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 LOGGER = logging.getLogger(__name__)
+
+
+class GmailRateLimitError(Exception):
+    def __init__(self, retry_after: float = 60):
+        self.retry_after = retry_after
+        super().__init__(f"Gmail rate limit, {retry_after:.0f}s dan keyin qayta urinib ko'ring")
 
 
 @dataclass
@@ -118,29 +123,26 @@ class GmailService:
     def _save_credentials(self, creds: Credentials) -> None:
         Path(self.token_file).write_text(creds.to_json(), encoding="utf-8")
 
-    def check_connection(self, max_retries: int = 3) -> Dict:
-        for attempt in range(max_retries):
-            try:
-                return self._service.users().getProfile(userId="me").execute()
-            except HttpError as e:
-                if e.resp.status == 429:
-                    wait = 60
-                    try:
-                        details = json.loads(e.content.decode())
-                        msg = details.get("error", {}).get("errors", [{}])[0].get("message", "")
-                        # "Retry after 2026-06-03T14:22:46.077Z"
-                        match = re.search(r"Retry after (.+)$", msg)
-                        if match:
-                            retry_dt = datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
-                            wait = max(0, (retry_dt - datetime.now(timezone.utc)).total_seconds()) + 5
-                    except Exception:
-                        pass
-                    if attempt < max_retries - 1:
-                        LOGGER.warning("Gmail rate limit (429), %ds kutilmoqda...", int(wait))
-                        time.sleep(wait)
-                        continue
-                raise
-        raise RuntimeError("check_connection: max retries exceeded")
+    @staticmethod
+    def _parse_retry_after(e: HttpError) -> float:
+        try:
+            details = json.loads(e.content.decode())
+            msg = details.get("error", {}).get("errors", [{}])[0].get("message", "")
+            match = re.search(r"Retry after (.+)$", msg)
+            if match:
+                retry_dt = datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+                return max(0, (retry_dt - datetime.now(timezone.utc)).total_seconds()) + 5
+        except Exception:
+            pass
+        return 60.0
+
+    def check_connection(self) -> Dict:
+        try:
+            return self._service.users().getProfile(userId="me").execute()
+        except HttpError as e:
+            if e.resp.status == 429:
+                raise GmailRateLimitError(retry_after=self._parse_retry_after(e))
+            raise
 
     def list_message_ids(
         self,
@@ -158,26 +160,36 @@ class GmailService:
             query_parts.append(extra_query)
         query = " ".join(query_parts).strip()
 
-        response = (
-            self._service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=max_results)
-            .execute()
-        )
+        try:
+            response = (
+                self._service.users()
+                .messages()
+                .list(userId="me", q=query, maxResults=max_results)
+                .execute()
+            )
+        except HttpError as e:
+            if e.resp.status == 429:
+                raise GmailRateLimitError(retry_after=self._parse_retry_after(e))
+            raise
         items = response.get("messages", [])
         return [item["id"] for item in items]
 
     def get_message(self, message_id: str) -> GmailMessage:
-        raw = (
-            self._service.users()
-            .messages()
-            .get(
-                userId="me",
-                id=message_id,
-                format="full",
+        try:
+            raw = (
+                self._service.users()
+                .messages()
+                .get(
+                    userId="me",
+                    id=message_id,
+                    format="full",
+                )
+                .execute()
             )
-            .execute()
-        )
+        except HttpError as e:
+            if e.resp.status == 429:
+                raise GmailRateLimitError(retry_after=self._parse_retry_after(e))
+            raise
 
         payload = raw.get("payload", {})
         headers = payload.get("headers", [])
