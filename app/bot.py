@@ -19,19 +19,25 @@ from google.auth.exceptions import RefreshError
 
 from app.config import Settings
 from app.db import (
+    Contact,
     EmailDelivery,
     EmailHistory,
     Group,
     deactivate_group,
     deactivate_group_by_chat_id,
+    delete_contact,
+    get_contact_by_msgplane,
     get_last_checked_ts,
     get_sender_filter,
+    list_contacts,
     list_groups,
     set_last_checked_ts,
     set_sender_filter,
+    upsert_contact,
     upsert_group,
 )
 from app.gmail_service import GmailService, GmailRateLimitError
+from app.msgplane import get_agent_name
 
 
 LOGGER = logging.getLogger(__name__)
@@ -39,6 +45,7 @@ LOGGER = logging.getLogger(__name__)
 MENU_PREFIX = "menu"
 GROUP_PREFIX = "grp"
 HISTORY_PREFIX = "hst"
+CONTACT_PREFIX = "cnt"
 
 
 @dataclass
@@ -148,10 +155,19 @@ def _parse_order_email(body_text: str) -> OrderEmailDetails:
     return details
 
 
-def _format_email_message(row: EmailHistory, body_text: str) -> str:
+def _format_email_message(row: EmailHistory, body_text: str, agent_mention: str = "") -> str:
     snippet = row.snippet.strip() if row.snippet else "(Bo'sh)"
     if len(snippet) > 500:
         snippet = snippet[:500] + "..."
+
+    def _append_agent(msg: str) -> str:
+        if not agent_mention:
+            return msg
+        suffix = f"\n\nAgent: {agent_mention}"
+        limit = 4000 - len(suffix)
+        if len(msg) > limit:
+            return msg[:limit] + "..." + suffix
+        return msg + suffix
 
     details = _parse_order_email(body_text)
     if details.has_data():
@@ -182,8 +198,8 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
 
         message = "\n".join(parts).strip()
         if len(message) > 4000:
-            return message[:4000] + "..."
-        return message
+            message = message[:4000] + "..."
+        return _append_agent(message)
 
     fallback = (
         "NEW SD REQUEST\n"
@@ -191,8 +207,8 @@ def _format_email_message(row: EmailHistory, body_text: str) -> str:
         f"{snippet}"
     )
     if len(fallback) > 4000:
-        return fallback[:4000] + "..."
-    return fallback
+        fallback = fallback[:4000] + "..."
+    return _append_agent(fallback)
 
 
 class GmailForwardBot:
@@ -352,6 +368,9 @@ class GmailForwardBot:
                 [
                     InlineKeyboardButton("Guruhlar", callback_data=f"{MENU_PREFIX}:groups"),
                     InlineKeyboardButton("History", callback_data=f"{MENU_PREFIX}:history"),
+                ],
+                [
+                    InlineKeyboardButton("Kontaktlar", callback_data=f"{MENU_PREFIX}:contacts"),
                 ],
                 [
                     InlineKeyboardButton("Yordam", callback_data=f"{MENU_PREFIX}:help"),
@@ -575,6 +594,30 @@ class GmailForwardBot:
         keyboard.append([InlineKeyboardButton("Back", callback_data=f"{MENU_PREFIX}:home")])
         return "\n".join(lines), InlineKeyboardMarkup(keyboard)
 
+    def _render_contacts_panel(self) -> Tuple[str, InlineKeyboardMarkup]:
+        contacts = list_contacts()
+        lines = [f"Kontaktlar: {len(contacts)} ta"]
+        if contacts:
+            lines.append("")
+            for idx, c in enumerate(contacts, 1):
+                lines.append(f"{idx}. {c.msgplane_username} → {c.telegram_username}")
+        else:
+            lines.append("")
+            lines.append("Hali kontakt qo'shilmagan.")
+
+        keyboard: list[list[InlineKeyboardButton]] = []
+        for c in contacts:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"➖ O'chirish: {c.msgplane_username}",
+                    callback_data=f"{CONTACT_PREFIX}:del:{c.id}",
+                )
+            ])
+        keyboard.append([InlineKeyboardButton("➕ Kontakt qo'shish", callback_data=f"{CONTACT_PREFIX}:add_prompt")])
+        keyboard.append([InlineKeyboardButton("🔄 Yangilash", callback_data=f"{CONTACT_PREFIX}:refresh")])
+        keyboard.append([InlineKeyboardButton("Back", callback_data=f"{MENU_PREFIX}:home")])
+        return "\n".join(lines), InlineKeyboardMarkup(keyboard)
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
             return
@@ -791,6 +834,46 @@ class GmailForwardBot:
         )
         await self._edit_or_reply(update, text, markup)
 
+    async def contacts_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not await self._ensure_admin(update):
+            return
+
+        query = update.callback_query
+        data = (query.data or "").split(":")
+        action = data[1] if len(data) > 1 else ""
+
+        if action == "add_prompt":
+            context.user_data["contact_step"] = "waiting_msgplane"
+            await query.answer()
+            await query.edit_message_text(
+                "MsgPlane da ko'rinadigan agent ismini kiriting (masalan: Albert):",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Bekor qilish", callback_data=f"{CONTACT_PREFIX}:cancel")
+                ]]),
+            )
+            return
+
+        elif action == "del" and len(data) == 3:
+            try:
+                contact_id = int(data[2])
+            except ValueError:
+                await query.answer("Noto'g'ri ID.", show_alert=True)
+                return
+            delete_contact(contact_id)
+            await query.answer("Kontakt o'chirildi.")
+
+        elif action in ("refresh", "cancel"):
+            context.user_data["contact_step"] = None
+            context.user_data.pop("contact_pending_msgplane", None)
+            await query.answer()
+
+        else:
+            await query.answer("Noma'lum amal.", show_alert=True)
+            return
+
+        text, markup = self._render_contacts_panel()
+        await self._edit_or_reply(update, text, markup)
+
     async def handle_group_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._ensure_admin(update):
             return
@@ -821,6 +904,31 @@ class GmailForwardBot:
                         reply_markup=self._main_menu_markup()
                     )
                     return
+
+        contact_step = context.user_data.get("contact_step")
+
+        if contact_step == "waiting_msgplane":
+            context.user_data["contact_step"] = "waiting_telegram"
+            context.user_data["contact_pending_msgplane"] = text
+            await update.message.reply_text(
+                f"MsgPlane ismi: {text}\n\nEndi Telegram username kiriting (@ bilan, masalan: @albert_tg):",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Bekor qilish", callback_data=f"{CONTACT_PREFIX}:cancel")
+                ]]),
+            )
+            return
+
+        if contact_step == "waiting_telegram":
+            context.user_data["contact_step"] = None
+            msgplane_name = context.user_data.pop("contact_pending_msgplane", "")
+            tg_username = text if text.startswith("@") else f"@{text}"
+            upsert_contact(msgplane_name, tg_username)
+            panel_text, markup = self._render_contacts_panel()
+            await update.message.reply_text(
+                f"✅ Kontakt saqlandi: {msgplane_name} → {tg_username}\n\n{panel_text}",
+                reply_markup=markup,
+            )
+            return
 
         if not context.user_data.get("waiting_for_group_input"):
             return
@@ -925,6 +1033,12 @@ class GmailForwardBot:
                 .limit(5)
             )
             await self._edit_or_reply(update, self._render_history_text(rows, 5), self._history_markup(5, rows))
+            return
+
+        if action == "contacts":
+            await query.answer()
+            text, markup = self._render_contacts_panel()
+            await self._edit_or_reply(update, text, markup)
             return
 
         if action == "check":
@@ -1117,7 +1231,21 @@ class GmailForwardBot:
                 snippet=msg.snippet,
                 internal_date=msg.internal_date,
             )
-            forward_text = _format_email_message(row, msg.body_text or msg.snippet)
+
+            agent_mention = ""
+            if self.settings.msgplane_api_key:
+                parsed = _parse_order_email(msg.body_text or msg.snippet)
+                if parsed.order_id:
+                    user_name = await get_agent_name(
+                        self.settings.msgplane_api_key,
+                        parsed.order_id,
+                        self.settings.msgplane_api_url,
+                    )
+                    if user_name:
+                        contact = get_contact_by_msgplane(user_name)
+                        agent_mention = contact.telegram_username if contact else user_name
+
+            forward_text = _format_email_message(row, msg.body_text or msg.snippet, agent_mention=agent_mention)
 
             delivery_success = 0
             first_chat_id: Optional[int] = None
@@ -1181,6 +1309,7 @@ class GmailForwardBot:
         app.add_handler(CallbackQueryHandler(self.menu_callback, pattern=rf"^{MENU_PREFIX}:"))
         app.add_handler(CallbackQueryHandler(self.groups_callback, pattern=rf"^{GROUP_PREFIX}:"))
         app.add_handler(CallbackQueryHandler(self.history_callback, pattern=rf"^{HISTORY_PREFIX}:"))
+        app.add_handler(CallbackQueryHandler(self.contacts_callback, pattern=rf"^{CONTACT_PREFIX}:"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_group_input))
 
         app.job_queue.run_repeating(self.job_poll, interval=self.settings.poll_interval_seconds, first=3)

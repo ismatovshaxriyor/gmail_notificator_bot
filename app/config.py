@@ -37,6 +37,8 @@ class Settings:
     target_chat_id: Optional[int]
     poll_interval_seconds: int
     gmail_query_extra: str
+    msgplane_api_key: str
+    msgplane_api_url: str
 
 
 def load_settings() -> Settings:
@@ -65,4 +67,6 @@ def load_settings() -> Settings:
         target_chat_id=_parse_optional_int(os.getenv("TARGET_CHAT_ID", "")),
         poll_interval_seconds=poll_interval_seconds,
         gmail_query_extra=os.getenv("GMAIL_QUERY_EXTRA", "").strip(),
+        msgplane_api_key=os.getenv("MSGPLANE_API_KEY", "").strip(),
+        msgplane_api_url=os.getenv("MSGPLANE_API_URL", "https://usst.msgplane.com/api/rest/get/user_by_order_number/").strip(),
     )

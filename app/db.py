@@ -61,10 +61,17 @@ class EmailDelivery(BaseModel):
     created_at = DateTimeField(default=datetime.utcnow)
 
 
+class Contact(BaseModel):
+    id = AutoField()
+    msgplane_username = CharField(unique=True)
+    telegram_username = CharField()
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
 def init_db(db_path: str) -> None:
     database.init(db_path)
     database.connect(reuse_if_open=True)
-    database.create_tables([BotSetting, EmailHistory, Group, EmailDelivery])
+    database.create_tables([BotSetting, EmailHistory, Group, EmailDelivery, Contact])
 
 
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -134,3 +141,26 @@ def list_groups(active_only: bool = True) -> list[Group]:
     if active_only:
         query = query.where(Group.is_active == True)  # noqa: E712
     return list(query)
+
+
+def list_contacts() -> list[Contact]:
+    return list(Contact.select().order_by(Contact.id.asc()))
+
+
+def get_contact_by_msgplane(username: str) -> Optional[Contact]:
+    return Contact.get_or_none(Contact.msgplane_username == username)
+
+
+def upsert_contact(msgplane_username: str, telegram_username: str) -> Contact:
+    Contact.insert(
+        msgplane_username=msgplane_username,
+        telegram_username=telegram_username,
+    ).on_conflict(
+        conflict_target=[Contact.msgplane_username],
+        update={Contact.telegram_username: telegram_username},
+    ).execute()
+    return Contact.get(Contact.msgplane_username == msgplane_username)
+
+
+def delete_contact(contact_id: int) -> bool:
+    return Contact.delete().where(Contact.id == contact_id).execute() > 0
